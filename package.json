@@ -5,7 +5,7 @@
   "description": "Family 3D Virtual Photo Exhibition & Museum",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node -e \"import('fs').then(fs => { fs.copyFileSync('dist/assets/index.js', 'assets/index.js'); fs.copyFileSync('index.html', 'dist/index.html'); console.log('Synced bundle to root successfully!'); })\"",
     "preview": "vite preview"
   },
   "dependencies": {

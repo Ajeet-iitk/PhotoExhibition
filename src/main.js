@@ -58,6 +58,26 @@ const gallery = new Gallery3D(canvasContainer, {
       crosshair.classList.remove('hovered');
       aimTooltip.classList.remove('visible');
     }
+  },
+  onTourStopChange: (info) => {
+    const banner = document.getElementById('tour-hud-banner');
+    const badge = document.getElementById('tour-hud-badge');
+    const title = document.getElementById('tour-hud-title');
+    const tourBtn = document.getElementById('btn-guided-tour');
+    const t = translations[currentLanguage];
+
+    if (info) {
+      banner.style.display = 'flex';
+      badge.textContent = `Stop ${info.index} / ${info.total}`;
+      const titleStr = info.artwork.title[currentLanguage] || info.artwork.title.en;
+      title.textContent = `[ ${info.spot} ] ${titleStr}`;
+      tourBtn.querySelector('span:last-child').textContent = t.stopTourBtn;
+      tourBtn.classList.add('btn-primary');
+    } else {
+      banner.style.display = 'none';
+      tourBtn.querySelector('span:last-child').textContent = t.startTourBtn;
+      tourBtn.classList.remove('btn-primary');
+    }
   }
 });
 
@@ -154,6 +174,20 @@ tourBtn.addEventListener('click', () => {
     updateAudioUI();
   }
 });
+
+// Guided Tour HUD Controls
+const btnTourPrev = document.getElementById('btn-tour-prev');
+const btnTourNext = document.getElementById('btn-tour-next');
+const btnTourPause = document.getElementById('btn-tour-pause');
+const btnTourExit = document.getElementById('btn-tour-exit');
+
+btnTourPrev.addEventListener('click', () => gallery.prevTourStop());
+btnTourNext.addEventListener('click', () => gallery.nextTourStop());
+btnTourPause.addEventListener('click', () => {
+  gallery.isTourPaused = !gallery.isTourPaused;
+  btnTourPause.textContent = gallery.isTourPaused ? '▶️' : '⏸️';
+});
+btnTourExit.addEventListener('click', () => gallery.stopTour());
 
 // Explore Hub Modal
 const exploreBtn = document.getElementById('btn-explore-hub');

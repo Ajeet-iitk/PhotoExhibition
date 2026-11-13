@@ -5,10 +5,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
+      input: './src/main.js',
       output: {
         format: 'iife',
-        entryFileNames: 'assets/[name].js',
-        chunkFileNames: 'assets/[name].js',
+        name: 'PhotoExhibitionApp',
+        entryFileNames: 'assets/index.js',
         assetFileNames: 'assets/[name].[ext]'
       }
     }
