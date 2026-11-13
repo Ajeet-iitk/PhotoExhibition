@@ -58,6 +58,20 @@
     </div>
   </header>
 
+  <!-- Cinematic Guided Tour HUD Controller -->
+  <div class="tour-hud-banner glass-panel" id="tour-hud-banner" style="display: none;">
+    <div class="tour-hud-info">
+      <span class="badge-spot" id="tour-hud-badge">Stop 1/20</span>
+      <span id="tour-hud-title" style="font-weight: 700; font-size: 13px;">Visiting Artwork...</span>
+    </div>
+    <div class="tour-hud-controls">
+      <button id="btn-tour-prev" class="btn-pill btn-icon-only" title="Previous Artwork">⏮️</button>
+      <button id="btn-tour-pause" class="btn-pill btn-icon-only" title="Pause / Resume Tour">⏸️</button>
+      <button id="btn-tour-next" class="btn-pill btn-icon-only" title="Next Artwork">⏭️</button>
+      <button id="btn-tour-exit" class="btn-pill" style="padding: 4px 10px; font-size: 11px;">✕ Exit</button>
+    </div>
+  </div>
+
   <!-- Mini-Map / Radar Overlay -->
   <div class="minimap-container glass-panel">
     <div class="minimap-header">

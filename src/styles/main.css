@@ -140,6 +140,38 @@ body {
   opacity: 1;
 }
 
+/* Tour HUD Controller Banner */
+.tour-hud-banner {
+  position: absolute;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 18px;
+  z-index: 35;
+  animation: slideDownFade 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+@keyframes slideDownFade {
+  from { opacity: 0; transform: translate(-50%, -12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.tour-hud-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tour-hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Glassmorphism Generic Utility */
 .glass-panel {
   background: var(--bg-glass);
