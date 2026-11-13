@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Family 3D Photo Exhibition | Virtual Museum Experience</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./src/styles/main.css">
+</head>
+<body>
+
+  <!-- 3D WebGL Canvas Viewport -->
+  <div id="canvas-container"></div>
+
+  <!-- Center Crosshair & Aim Tooltip -->
+  <div class="crosshair" id="crosshair"></div>
+  <div class="aim-tooltip" id="aim-tooltip">Click to View Artwork [E]</div>
+
+  <!-- Top Floating Navigation Bar -->
+  <header class="top-navbar glass-panel">
+    <div class="brand-section">
+      <div class="brand-icon">🖼️</div>
+      <div class="brand-text">
+        <h1 id="ui-app-title">Family 3D Photo Exhibition</h1>
+        <p id="ui-app-subtitle">An Immersive Virtual Museum Experience</p>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <!-- Guided Tour Toggle Button -->
+      <button id="btn-guided-tour" class="btn-pill" title="Auto Walkthrough Tour">
+        <span>🎬</span>
+        <span id="ui-tour-btn">Start Guided Tour</span>
+      </button>
+
+      <!-- Explore Hub Button -->
+      <button id="btn-explore-hub" class="btn-pill btn-primary" title="Open Full 470+ Photos Catalog">
+        <span>✨</span>
+        <span id="ui-explore-btn">Explore All Photos</span>
+      </button>
+
+      <!-- Light / Dark Mode Toggle -->
+      <button id="btn-theme-toggle" class="btn-pill btn-icon-only" title="Toggle Daylight / Cyber Noir Mode">
+        <span id="theme-icon">🌙</span>
+      </button>
+
+      <!-- Language Selector (EN, हिन्दी, Hinglish) -->
+      <div class="lang-switcher">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="hi">हिन्दी</button>
+        <button class="lang-btn" data-lang="eh">Hinglish</button>
+      </div>
+
+      <!-- Help / Controls Button -->
+      <button id="btn-help" class="btn-pill btn-icon-only" title="Navigation Controls Guide">
+        <span>❓</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Mini-Map / Radar Overlay -->
+  <div class="minimap-container glass-panel">
+    <div class="minimap-header">
+      <span id="ui-map-label">Radar Map</span>
+      <span id="minimap-coords">0, 0</span>
+    </div>
+    <div class="minimap-canvas-wrapper">
+      <canvas id="minimap-canvas" width="140" height="140"></canvas>
+    </div>
+  </div>
+
+  <!-- Quick Teleport Bar to Exhibition Wings -->
+  <div class="wings-bar" id="wings-bar">
+    <!-- Populated dynamically via JS -->
+  </div>
+
+  <!-- Current Wing HUD Badge -->
+  <div class="current-wing-badge glass-panel" id="current-wing-badge">
+    <div class="pulsing-dot"></div>
+    <span id="current-wing-name">Grand Central Rotunda</span>
+  </div>
+
+  <!-- Floating Bottom Music Player Bar -->
+  <div class="audio-player-bar glass-panel">
+    <div class="audio-info">
+      <div class="audio-icon-vinyl" id="vinyl-icon">🎵</div>
+      <div class="audio-text">
+        <h4 id="audio-track-title">Serene Gallery Lounge</h4>
+        <p id="audio-track-sub">Atmospheric Procedural Audio</p>
+      </div>
+    </div>
+
+    <!-- Live Audio Waveform Visualizer -->
+    <canvas class="audio-visualizer-canvas" id="audio-visualizer" width="70" height="24"></canvas>
+
+    <div class="audio-controls">
+      <button id="audio-prev-btn" class="btn-pill btn-icon-only" title="Previous Track">⏮️</button>
+      <button id="audio-play-btn" class="btn-pill btn-icon-only" title="Play / Pause Ambient Music">▶️</button>
+      <button id="audio-next-btn" class="btn-pill btn-icon-only" title="Next Track">⏭️</button>
+
+      <div class="volume-slider-group">
+        <button id="audio-mute-btn" class="btn-pill btn-icon-only" title="Mute / Unmute Audio">🔊</button>
+        <input type="range" id="audio-volume" class="volume-slider" min="0" max="1" step="0.05" value="0.45" title="Music Volume">
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Touch Controls Layer -->
+  <div class="mobile-controls-layer">
+    <!-- Virtual Movement Joystick (Left) -->
+    <div class="touch-joystick-zone" id="joystick-zone">
+      <div class="joystick-knob" id="joystick-knob"></div>
+    </div>
+    <!-- Touch Look Drag Zone (Right) -->
+    <div class="touch-look-zone" id="touch-look-zone"></div>
+  </div>
+
+  <!-- =========================================================================
+       MODALS: Artwork Inspector, Explore Hub, Welcome Splash, Help Dialog
+       ========================================================================= -->
+
+  <!-- 1. Artwork Inspector Modal -->
+  <div class="modal-backdrop" id="artwork-modal">
+    <div class="modal-dialog artwork-modal-dialog">
+      <!-- Left: High-Res Photo Display -->
+      <div class="artwork-preview-pane">
+        <img id="inspect-img" class="artwork-img" src="" alt="Exhibition Artwork">
+      </div>
+
+      <!-- Right: Detailed Info & Actions -->
+      <div class="artwork-info-pane">
+        <div>
+          <div class="artwork-meta-header">
+            <span class="badge-spot" id="inspect-spot">C-1</span>
+            <span class="badge-wing" id="inspect-wing">Grand Central Rotunda</span>
+            <button id="inspect-close-btn" class="btn-pill btn-icon-only" style="margin-left: auto;">✕</button>
+          </div>
+
+          <h2 class="artwork-title" id="inspect-title">Artwork Title</h2>
+          <p class="artwork-desc" id="inspect-desc">Artwork detailed story and description in the selected language.</p>
+
+          <div class="artwork-details-grid">
+            <div class="detail-item">
+              <p id="ui-label-collection">Collection</p>
+              <p id="inspect-category">Family Highlights</p>
+            </div>
+            <div class="detail-item">
+              <p id="ui-label-spot">Spot Location</p>
+              <p id="inspect-coords">Central Atrium</p>
+            </div>
+            <div class="detail-item">
+              <p id="ui-label-views">Exhibition View</p>
+              <p>Curated 3D Showcase</p>
+            </div>
+            <div class="detail-item">
+              <p id="ui-label-format">Quality</p>
+              <p>Original Masterpiece</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="artwork-modal-actions">
+          <button id="inspect-fav-btn" class="btn-pill" title="Save to Favorites">
+            <span id="inspect-fav-icon">🤍</span>
+            <span id="ui-btn-fav">Favorite</span>
+          </button>
+          <a id="inspect-download-btn" class="btn-pill" href="" download target="_blank" title="Download High-Res">
+            <span>📥</span>
+            <span id="ui-btn-download">Download</span>
+          </a>
+          <button id="inspect-teleport-btn" class="btn-pill btn-primary" title="Teleport to this Artwork in 3D">
+            <span>📍</span>
+            <span id="ui-btn-teleport">Teleport Here</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Explore Hub Modal (All 470+ Photos, Search, Filters, Guestbook, Slideshow) -->
+  <div class="modal-backdrop" id="explore-modal">
+    <div class="modal-dialog explore-modal-dialog">
+      <div class="explore-header">
+        <div>
+          <h2 id="ui-explore-title" style="font-size: 20px; font-weight: 800;">The Memory Vault & Photo Archive</h2>
+          <p id="ui-explore-subtitle" style="font-size: 12px; color: var(--text-secondary);">Browse 470+ high-resolution family photographs across all wings & collections</p>
+        </div>
+        <button id="explore-close-btn" class="btn-pill btn-icon-only">✕</button>
+      </div>
+
+      <div class="explore-toolbar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="explore-search" class="search-input" placeholder="Search photos by title, date, or folder...">
+        </div>
+
+        <div class="explore-tabs">
+          <button class="explore-tab-btn active" data-tab="all" id="tab-all-photos">All Photos (478)</button>
+          <button class="explore-tab-btn" data-tab="favorites" id="tab-favorites">Favorites (0)</button>
+          <button class="explore-tab-btn" data-tab="slideshow" id="tab-slideshow">Slideshow</button>
+          <button class="explore-tab-btn" data-tab="guestbook" id="tab-guestbook">Guestbook & Wishes</button>
+          <button class="explore-tab-btn" data-tab="highlights" id="tab-highlights">Creative Highlights</button>
+        </div>
+      </div>
+
+      <div class="explore-body" id="explore-body">
+        <!-- Masonry Grid View (Default) -->
+        <div id="tab-content-photos" class="photos-masonry-grid">
+          <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Slideshow View -->
+        <div id="tab-content-slideshow" style="display: none; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;">
+          <div style="position: relative; max-width: 90%; max-height: 520px; display: flex; align-items: center; justify-content: center;">
+            <img id="slideshow-img" src="" alt="Slideshow Photo" style="max-width: 100%; max-height: 500px; border-radius: 12px; box-shadow: var(--card-shadow);">
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="slideshow-prev-btn" class="btn-pill">⏮️ Prev</button>
+            <button id="slideshow-play-btn" class="btn-pill btn-primary">⏸️ Pause</button>
+            <button id="slideshow-next-btn" class="btn-pill">Next ⏭️</button>
+          </div>
+          <p id="slideshow-caption" style="font-weight: 700; font-size: 14px; text-align: center;"></p>
+        </div>
+
+        <!-- Guestbook / Memory Wall View -->
+        <div id="tab-content-guestbook" class="guestbook-section" style="display: none;">
+          <div class="guestbook-form-card">
+            <h3 id="ui-guestbook-title" style="font-size: 16px; font-weight: 700;">Leave a Warm Memory</h3>
+            <p id="ui-guestbook-subtitle" style="font-size: 12px; color: var(--text-secondary);">Write a blessing, memory, or wish for the family in the virtual guestbook:</p>
+            <input type="text" id="guestbook-name" class="form-input" placeholder="Your Name...">
+            <textarea id="guestbook-msg" class="form-textarea" placeholder="Share a sweet memory or blessing..."></textarea>
+            <button id="btn-post-wish" class="btn-pill btn-primary" style="justify-content: center;">Post to Memory Wall ✨</button>
+          </div>
+
+          <div class="wishes-grid" id="wishes-grid">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Creative Highlights & Site Innovations -->
+        <div id="tab-content-highlights" class="creative-features-grid" style="display: none;">
+          <div class="feature-box">
+            <div class="feature-icon-badge">🏛️</div>
+            <h4>Architectural 3D Virtual Gallery</h4>
+            <p>Built with Three.js featuring an Octagonal Grand Rotunda, 4 Thematic Wings, marble tile reflections, glass dome skylights, and floating golden memory crystal.</p>
+          </div>
+          <div class="feature-box">
+            <div class="feature-icon-badge">🌐</div>
+            <h4>E / H / EH Trilingual Engine</h4>
+            <p>Seamlessly toggle between English, Hindi (हिन्दी), and conversational Hinglish across all UI labels, exhibition plaques, and artwork stories without page reloads.</p>
+          </div>
+          <div class="feature-box">
+            <div class="feature-icon-badge">🌓</div>
+            <h4>Daylight & Cyber Noir Modes</h4>
+            <p>Switch between a sun-drenched warm classical marble gallery and a moody neon-accented cyber noir museum with dynamic spotlighting.</p>
+          </div>
+          <div class="feature-box">
+            <div class="feature-icon-badge">🎶</div>
+            <h4>Procedural Audio & SFX Synthesizer</h4>
+            <p>Built-in Web Audio API engine creating soothing lo-fi jazz chords, acoustic warmth, realistic walking footsteps, camera shutter clicks, and a live audio visualizer.</p>
+          </div>
+          <div class="feature-box">
+            <div class="feature-icon-badge">📱</div>
+            <h4>Mobile Friendly Virtual Joystick</h4>
+            <p>Full touch controls with on-screen virtual joystick, swipe-to-look rotation, and tap-to-inspect gestures tailored for smartphones and tablets.</p>
+          </div>
+          <div class="feature-box">
+            <div class="feature-icon-badge">🎬</div>
+            <h4>Cinematic Guided Auto-Tour</h4>
+            <p>Sit back and let the camera smoothly glide through every wing and showcase photo using CatmullRom spline navigation with ambient music.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Welcome Onboarding Modal -->
+  <div class="modal-backdrop active" id="welcome-modal">
+    <div class="modal-dialog welcome-modal-dialog">
+      <div class="welcome-logo-badge">🏛️</div>
+      <h2 class="welcome-title" id="welcome-title">Family 3D Photo Exhibition</h2>
+      <p class="welcome-subtitle" id="welcome-subtitle">Step inside a breathtaking 3D virtual art museum celebrating timeless family moments, milestones, and memories.</p>
+
+      <div class="welcome-features-list">
+        <span class="welcome-tag">✨ 3D Walkthrough</span>
+        <span class="welcome-tag">🌐 English / हिन्दी / Hinglish</span>
+        <span class="welcome-tag">🎵 Ambient Music Lounge</span>
+        <span class="welcome-tag">🌓 Day & Cyber Noir</span>
+        <span class="welcome-tag">📱 Mobile Friendly</span>
+      </div>
+
+      <div style="background: rgba(0,0,0,0.04); padding: 12px 18px; border-radius: 12px; font-size: 12px; width: 100%; text-align: left;">
+        <p><strong>Controls:</strong> [W, A, S, D] or Arrow Keys to walk | Click & Drag to look | Click any framed painting to zoom | Mobile: On-screen joystick & swipe</p>
+      </div>
+
+      <button id="btn-enter-exhibition" class="btn-pill btn-primary" style="padding: 12px 32px; font-size: 15px; border-radius: 28px;">
+        <span>🚀</span>
+        <span id="ui-btn-enter">Enter 3D Exhibition</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main JavaScript Application Bundle -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
