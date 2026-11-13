@@ -2,11 +2,46 @@
 
 > An immersive, interactive 3D virtual art museum and photo gallery celebrating cherished family memories, milestones, and timeless stories.
 
-![Exhibition Preview](/public/favicon.svg)
+![Exhibition Preview](./favicon.svg)
 
 ---
 
-## 🌟 Highlights & Creative Innovations
+## ⚡ Instant 1-Click Launch (No npm Commands Needed!)
+
+On Windows, simply **double-click** the file:
+```text
+Start-Exhibition.bat
+```
+This immediately starts the local server and opens the 3D exhibition in your browser at `http://localhost:3000`!
+
+---
+
+## 🌐 How to Upload to GitHub & Run on GitHub Pages
+
+The repository root `index.html` is **fully self-contained and pre-bundled**. You do **not** need a build step on GitHub.
+
+### 1. Push to your GitHub Repository
+```powershell
+git add .
+git commit -m "Update standalone root exhibition bundle for GitHub Pages"
+git push origin main
+```
+
+### 2. Turn on GitHub Pages (Standard Root Hosting)
+1. Go to your repository on **GitHub.com**.
+2. Click **Settings** ➔ **Pages** (in the left sidebar).
+3. Under **Build and deployment** ➔ **Branch**:
+   - Select branch: **`main`**
+   - Select folder: **`/ (root)`**
+   - Click **Save**.
+4. That's it! Your site will be live at:
+   `https://<YOUR-GITHUB-USERNAME>.github.io/<YOUR-REPO-NAME>/`
+
+*(Alternatively, if you prefer GitHub Actions, the `.github/workflows/deploy.yml` workflow is also pre-configured).*
+
+---
+
+## 🌟 Highlights & Features
 
 - **🎮 Full 3D Interactive Walkthrough**:
   - Roam freely through a grand museum with **WASD / Arrow Keys** and mouse look (or pointer lock).
@@ -31,7 +66,7 @@
 - **🎵 Procedural Ambient Audio & Sound Effects**:
   - **Procedural Audio Engine**: Web Audio API-synthesized relaxing lo-fi jazz chords, acoustic guitar tones, and atmospheric museum pads (works 100% offline without external audio files).
   - **Dynamic Audio Visualizer**: Live animated frequency waveform bars in the bottom player bar.
-  - **Spatial Sound Effects**: Realistic soft footstep sounds as you walk, authentic camera shutter click when inspecting photos, UI clicks, and teleport swooshes.
+  - **Spatial Sound Effects**: Realistic soft footstep sounds as you walk, authentic camera shutter click when inspecting photos, UI taps, and teleport swooshes.
   - Full player controls: Play / Pause, Next / Prev Track, Volume slider, and Mute toggle.
 
 - **🗺️ Interactive Radar Mini-Map**:
@@ -60,51 +95,6 @@
 | **Sibling Chronicles** | Brothers & Sisters | Capturing brother-sister camaraderie, playful teasing, laughter, and unbreakable bonds. |
 | **Ajeet's Hall of Milestones** | Ajeet Kushwaha | Dynamic portraits, campus days, achievements, and vibrant memories of Ajeet. |
 | **Heritage & Past Albums** | Nostalgia & Vintage | Throwback photographs, childhood snapshots, and time-honored roots from the family archives. |
-
----
-
-## 🛠️ Technology Stack
-
-- **3D Graphics**: [Three.js](https://threejs.org/) (WebGL rendering, PCFSoftShadowMap, custom materials, spotlighting, CatmullRom spline paths)
-- **Audio Engine**: Web Audio API (procedural harmonic synthesizer, biquad lowpass filtering, spatial SFX, analyser node)
-- **Frontend / UI**: Modern Vanilla JavaScript (ES Modules), Glassmorphism CSS with CSS Custom Properties
-- **Bundler & Dev Server**: [Vite 5](https://vitejs.dev/)
-- **Effects**: [canvas-confetti](https://www.npmjs.com/package/canvas-confetti)
-- **Asset Storage**: Google Drive Public CDN integration with local high-res caching in `public/photos/`
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-- **Node.js** (v20+ recommended)
-- **npm** (v10+ recommended)
-
-### 2. Installation
-```bash
-# Clone or open the repository
-cd PhotoExhibition
-
-# Install dependencies
-npm install
-```
-
-### 3. Run Development Server
-```bash
-npm run dev
-```
-Open your browser and navigate to `http://localhost:5173` to explore the exhibition!
-
-### 4. Build for Production
-```bash
-npm run build
-```
-The optimized production bundle will be generated in the `dist/` directory, ready to deploy to GitHub Pages, Netlify, Vercel, or any static web host.
-
-### 5. Preview Production Build
-```bash
-npm run preview
-```
 
 ---
 
