@@ -9,32 +9,45 @@ export class Gallery3D {
     this.onSelectArtwork = options.onSelectArtwork || (() => {});
     this.onWingChange = options.onWingChange || (() => {});
     this.onHoverArtwork = options.onHoverArtwork || (() => {});
+    this.onTourStopChange = options.onTourStopChange || (() => {});
 
     // State
     this.isNightMode = false;
     this.currentLanguage = options.language || 'en';
     this.isPointerLocked = false;
-    this.isTourActive = false;
-    this.tourProgress = 0;
-    this.tourSpeed = 0.00035;
     this.activeArtwork = null;
     this.hoveredArtwork = null;
 
-    // Movement state
+    // Smooth Free-Roam Movement state
     this.keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false };
     this.moveVector = new THREE.Vector3();
     this.velocity = new THREE.Vector3();
-    this.userSpeed = 7.5;
+    this.maxSpeed = 6.5;
     this.footstepDistance = 0;
 
     // Mobile touch joystick
-    this.touchJoystick = { active: false, startX: 0, startY: 0, deltaX: 0, deltaY: 0 };
+    this.touchJoystick = { active: false, deltaX: 0, deltaY: 0 };
     this.touchLook = { active: false, lastX: 0, lastY: 0 };
 
-    // Camera angles
+    // Camera angles & smooth orientation
     this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
-    this.minPolarAngle = 0.05;
-    this.maxPolarAngle = Math.PI - 0.05;
+    this.targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    this.targetQuaternion = new THREE.Quaternion();
+    this.currentQuaternion = new THREE.Quaternion();
+
+    // Cinematic Tour Engine State
+    this.isTourActive = false;
+    this.isTourPaused = false;
+    this.tourStopIndex = 0;
+    this.tourPhase = 'gliding'; // 'gliding' | 'viewing'
+    this.tourTransitionTime = 0;
+    this.tourTotalTransitionTime = 3.0; // seconds
+    this.tourViewTime = 0;
+    this.tourTotalViewTime = 3.6; // seconds viewing painting
+    this.tourStartPos = new THREE.Vector3();
+    this.tourEndPos = new THREE.Vector3();
+    this.tourStartQuat = new THREE.Quaternion();
+    this.tourEndQuat = new THREE.Quaternion();
 
     // Setup Three.js
     this.initScene();
@@ -42,7 +55,7 @@ export class Gallery3D {
     this.initArchitecture();
     this.initArtworks();
     this.initParticles();
-    this.initTourPath();
+    this.initTourWaypoints();
     this.initEventListeners();
 
     // Start render loop
@@ -54,10 +67,11 @@ export class Gallery3D {
   initScene() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xf5f3ef);
-    this.scene.fog = new THREE.FogExp2(0xf5f3ef, 0.015);
+    this.scene.fog = new THREE.FogExp2(0xf5f3ef, 0.014);
 
     this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 150);
-    this.camera.position.set(0, 1.7, 8); // Start in central rotunda facing entrance
+    this.camera.position.set(0, 1.7, 7.5);
+    this.camera.rotation.y = Math.PI; // Face inward toward rotunda
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -65,7 +79,7 @@ export class Gallery3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.container.appendChild(this.renderer.domElement);
     this.raycaster = new THREE.Raycaster();
@@ -77,14 +91,14 @@ export class Gallery3D {
     this.lightsGroup = new THREE.Group();
     this.scene.add(this.lightsGroup);
 
-    // Hemisphere light (sky & ground ambient)
-    this.hemiLight = new THREE.HemisphereLight(0xfff8f0, 0xd0c8b8, 0.85);
+    // Hemisphere light
+    this.hemiLight = new THREE.HemisphereLight(0xfff8f0, 0xd0c8b8, 0.9);
     this.hemiLight.position.set(0, 20, 0);
     this.lightsGroup.add(this.hemiLight);
 
-    // Main central directional sunlight / skylight
-    this.sunLight = new THREE.DirectionalLight(0xfffaf0, 1.2);
-    this.sunLight.position.set(10, 25, 12);
+    // Main directional sunlight
+    this.sunLight = new THREE.DirectionalLight(0xfffaf0, 1.25);
+    this.sunLight.position.set(12, 24, 14);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 2048;
     this.sunLight.shadow.mapSize.height = 2048;
@@ -97,12 +111,12 @@ export class Gallery3D {
     this.sunLight.shadow.bias = -0.0005;
     this.lightsGroup.add(this.sunLight);
 
-    // Central Rotunda Chandelier / Crystal Glow
-    this.crystalLight = new THREE.PointLight(0xffd700, 1.2, 18);
+    // Central Rotunda Chandelier
+    this.crystalLight = new THREE.PointLight(0xffd700, 1.3, 20);
     this.crystalLight.position.set(0, 4.5, 0);
     this.lightsGroup.add(this.crystalLight);
 
-    // Wing ambient spotlights
+    // 4 Wing ambient lights
     this.wingSpotlights = [];
     const wingPositions = [
       { x: 26, y: 4.8, z: 0, color: 0xffeedd },   // East (Parents)
@@ -112,25 +126,22 @@ export class Gallery3D {
     ];
 
     wingPositions.forEach(pos => {
-      const pLight = new THREE.PointLight(pos.color, 1.0, 22);
+      const pLight = new THREE.PointLight(pos.color, 1.1, 24);
       pLight.position.set(pos.x, pos.y, pos.z);
       this.lightsGroup.add(pLight);
       this.wingSpotlights.push(pLight);
     });
   }
 
-  // Generates procedural floor tile texture
   createFloorTexture(isNight = false) {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
     canvas.height = 1024;
     const ctx = canvas.getContext('2d');
 
-    // Base background
-    ctx.fillStyle = isNight ? '#0f172a' : '#f8f6f0';
+    ctx.fillStyle = isNight ? '#0b1120' : '#f8f6f0';
     ctx.fillRect(0, 0, 1024, 1024);
 
-    // Large marble / parquet grid tiles
     const tileSize = 128;
     for (let x = 0; x < 1024; x += tileSize) {
       for (let y = 0; y < 1024; y += tileSize) {
@@ -140,8 +151,7 @@ export class Gallery3D {
           : (isAlternate ? '#ffffff' : '#f1ede4');
         ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
 
-        // Gilded/accent border for luxury museum feel
-        ctx.strokeStyle = isNight ? 'rgba(56, 189, 248, 0.15)' : 'rgba(217, 119, 6, 0.15)';
+        ctx.strokeStyle = isNight ? 'rgba(56, 189, 248, 0.18)' : 'rgba(217, 119, 6, 0.18)';
         ctx.lineWidth = 2;
         ctx.strokeRect(x + 1, y + 1, tileSize - 2, tileSize - 2);
       }
@@ -158,41 +168,34 @@ export class Gallery3D {
     this.architectureGroup = new THREE.Group();
     this.scene.add(this.architectureGroup);
 
-    // 1. Grand Floor (covers full exhibition cross)
+    // Floor
     const floorGeo = new THREE.PlaneGeometry(80, 80);
     this.floorMat = new THREE.MeshStandardMaterial({
       map: this.createFloorTexture(false),
-      roughness: 0.25,
-      metalness: 0.1
+      roughness: 0.22,
+      metalness: 0.12
     });
     this.floor = new THREE.Mesh(floorGeo, this.floorMat);
     this.floor.rotation.x = -Math.PI / 2;
     this.floor.receiveShadow = true;
     this.architectureGroup.add(this.floor);
 
-    // 2. Ceiling & Vaulted Roofs
+    // Ceiling
     const ceilingGeo = new THREE.PlaneGeometry(80, 80);
-    this.ceilingMat = new THREE.MeshStandardMaterial({
-      color: 0xefede8,
-      roughness: 0.8
-    });
+    this.ceilingMat = new THREE.MeshStandardMaterial({ color: 0xefede8, roughness: 0.85 });
     this.ceiling = new THREE.Mesh(ceilingGeo, this.ceilingMat);
     this.ceiling.position.y = 5.2;
     this.ceiling.rotation.x = Math.PI / 2;
     this.architectureGroup.add(this.ceiling);
 
-    // 3. Central Rotunda Skylight Dome Ring
+    // Central Dome Ring
     const domeGeo = new THREE.CylinderGeometry(14, 14, 0.6, 32, 1, true);
-    this.domeMat = new THREE.MeshStandardMaterial({
-      color: 0xd97706,
-      roughness: 0.3,
-      metalness: 0.6
-    });
+    this.domeMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.3, metalness: 0.6 });
     const domeRing = new THREE.Mesh(domeGeo, this.domeMat);
     domeRing.position.y = 5.0;
     this.architectureGroup.add(domeRing);
 
-    // Glass dome center
+    // Glass Skylight
     const glassGeo = new THREE.CircleGeometry(13.8, 32);
     this.glassMat = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
@@ -207,19 +210,10 @@ export class Gallery3D {
     glassDome.rotation.x = Math.PI / 2;
     this.architectureGroup.add(glassDome);
 
-    // 4. Central Monument / Floating Crystal Memorial
+    // Monument & Walls
     this.initCentralMonument();
 
-    // 5. Walls & Corridors
-    this.wallMat = new THREE.MeshStandardMaterial({
-      color: 0xf3f0e8,
-      roughness: 0.75
-    });
-    this.accentWallMat = new THREE.MeshStandardMaterial({
-      color: 0xe2dcd0,
-      roughness: 0.6
-    });
-
+    this.wallMat = new THREE.MeshStandardMaterial({ color: 0xf3f0e8, roughness: 0.75 });
     this.buildMuseumWalls();
   }
 
@@ -227,7 +221,6 @@ export class Gallery3D {
     this.monumentGroup = new THREE.Group();
     this.monumentGroup.position.set(0, 0, 0);
 
-    // Pedestal base
     const baseGeo = new THREE.CylinderGeometry(2.4, 2.8, 0.5, 8);
     const baseMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.2, metalness: 0.8 });
     const base = new THREE.Mesh(baseGeo, baseMat);
@@ -235,27 +228,24 @@ export class Gallery3D {
     base.receiveShadow = true;
     this.monumentGroup.add(base);
 
-    // Secondary pedestal
     const subBaseGeo = new THREE.CylinderGeometry(1.8, 2.0, 0.4, 8);
     const subBase = new THREE.Mesh(subBaseGeo, baseMat);
     subBase.position.y = 0.6;
     this.monumentGroup.add(subBase);
 
-    // Floating Crystal
     const crystalGeo = new THREE.OctahedronGeometry(1.0, 0);
     this.crystalMat = new THREE.MeshStandardMaterial({
       color: 0xf59e0b,
       roughness: 0.1,
       metalness: 0.9,
       emissive: 0xd97706,
-      emissiveIntensity: 0.5
+      emissiveIntensity: 0.55
     });
     this.crystal = new THREE.Mesh(crystalGeo, this.crystalMat);
     this.crystal.position.y = 2.2;
     this.crystal.castShadow = true;
     this.monumentGroup.add(this.crystal);
 
-    // Orbiting Golden Rings
     const ringGeo1 = new THREE.TorusGeometry(1.4, 0.04, 16, 64);
     const ringMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.9, roughness: 0.1 });
     this.orbitRing1 = new THREE.Mesh(ringGeo1, ringMat);
@@ -269,34 +259,23 @@ export class Gallery3D {
     this.orbitRing2.rotation.y = Math.PI / 4;
     this.monumentGroup.add(this.orbitRing2);
 
-    // Inscribed Brass Plaque on Base
-    const plaqueGeo = new THREE.BoxGeometry(1.2, 0.35, 0.05);
-    const plaqueMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.8, roughness: 0.2 });
-    const plaque = new THREE.Mesh(plaqueGeo, plaqueMat);
-    plaque.position.set(0, 0.7, 1.82);
-    plaque.rotation.x = -Math.PI / 12;
-    this.monumentGroup.add(plaque);
-
     this.architectureGroup.add(this.monumentGroup);
   }
 
   buildMuseumWalls() {
     const wallHeight = 5.2;
 
-    // Helper to add a wall box
-    const addWall = (x, z, w, d, rotY = 0, mat = this.wallMat) => {
+    const addWall = (x, z, w, d, rotY = 0) => {
       const geo = new THREE.BoxGeometry(w, wallHeight, d);
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(geo, this.wallMat);
       mesh.position.set(x, wallHeight / 2, z);
       mesh.rotation.y = rotY;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.architectureGroup.add(mesh);
-      return mesh;
     };
 
-    // Central Rotunda outer boundary wall segments (allowing 4 grand arched openings at 0, 90, 180, 270 deg)
-    // 8 diagonal wall sections for the octagonal rotunda
+    // Rotunda octagonal perimeter
     const rotundaRadius = 14.0;
     const angles = [Math.PI / 8, 3 * Math.PI / 8, 5 * Math.PI / 8, 7 * Math.PI / 8, 9 * Math.PI / 8, 11 * Math.PI / 8, 13 * Math.PI / 8, 15 * Math.PI / 8];
     angles.forEach((ang) => {
@@ -305,46 +284,24 @@ export class Gallery3D {
       addWall(x, z, 7.5, 0.6, ang + Math.PI / 2);
     });
 
-    // Outer corridor walls for 4 Wings:
-    // East Wing (Parents, X: +14 to +36, width 14m, walls at Z = +7 and Z = -7)
-    addWall(25, -7.2, 24, 0.6); // North wall of East wing
-    addWall(25, 7.2, 24, 0.6);  // South wall of East wing
-    addWall(37, 0, 0.6, 15);    // East end wall
+    // 4 Wing outer boundaries
+    addWall(25, -7.2, 24, 0.6); // East North
+    addWall(25, 7.2, 24, 0.6);  // East South
+    addWall(37, 0, 0.6, 15);    // East End
 
-    // West Wing (Ajeet, X: -14 to -36, walls at Z = +7 and Z = -7)
-    addWall(-25, -7.2, 24, 0.6);
-    addWall(-25, 7.2, 24, 0.6);
-    addWall(-37, 0, 0.6, 15);
+    addWall(-25, -7.2, 24, 0.6); // West North
+    addWall(-25, 7.2, 24, 0.6);  // West South
+    addWall(-37, 0, 0.6, 15);    // West End
 
-    // South Wing (Siblings, Z: +14 to +36, walls at X = +7 and X = -7)
-    addWall(-7.2, 25, 0.6, 24);
-    addWall(7.2, 25, 0.6, 24);
-    addWall(0, 37, 15, 0.6);
+    addWall(-7.2, 25, 0.6, 24); // South West
+    addWall(7.2, 25, 0.6, 24);  // South East
+    addWall(0, 37, 15, 0.6);    // South End
 
-    // North Wing (Vintage & Heritage, Z: -14 to -36, walls at X = +7 and X = -7)
-    addWall(-7.2, -25, 0.6, 24);
-    addWall(7.2, -25, 0.6, 24);
-    addWall(0, -37, 15, 0.6);
-
-    // Architectural Pillars at Wing Entrances
-    const pillarPositions = [
-      [-5, -12], [5, -12], // North entrance
-      [-5, 12], [5, 12],   // South entrance
-      [-12, -5], [-12, 5], // West entrance
-      [12, -5], [12, 5]    // East entrance
-    ];
-    const pillarGeo = new THREE.CylinderGeometry(0.5, 0.6, wallHeight, 16);
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xe2dcd0, roughness: 0.4 });
-    pillarPositions.forEach(p => {
-      const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-      pillar.position.set(p[0], wallHeight / 2, p[1]);
-      pillar.castShadow = true;
-      pillar.receiveShadow = true;
-      this.architectureGroup.add(pillar);
-    });
+    addWall(-7.2, -25, 0.6, 24); // North West
+    addWall(7.2, -25, 0.6, 24);  // North East
+    addWall(0, -37, 15, 0.6);    // North End
   }
 
-  // Load and mount all 36 3D Artworks with bevelled frames, matting, plaques, and spot-lighting
   initArtworks() {
     this.artworksGroup = new THREE.Group();
     this.scene.add(this.artworksGroup);
@@ -360,7 +317,7 @@ export class Gallery3D {
       const h = art.height;
       const frameDepth = 0.12;
 
-      // 1. Picture Frame (Outer bevelled dark mahogany / black titanium)
+      // Frame
       const frameGeo = new THREE.BoxGeometry(w + 0.35, h + 0.35, frameDepth);
       const frameMat = new THREE.MeshStandardMaterial({
         color: this.isNightMode ? 0x18181b : 0x2e1a0e,
@@ -371,34 +328,22 @@ export class Gallery3D {
       frameMesh.castShadow = true;
       artGroup.add(frameMesh);
 
-      // 2. Golden Gilded Inner Bevel Trim
+      // Gilded Trim
       const trimGeo = new THREE.BoxGeometry(w + 0.12, h + 0.12, frameDepth + 0.02);
-      const trimMat = new THREE.MeshStandardMaterial({
-        color: 0xf59e0b,
-        metalness: 0.85,
-        roughness: 0.2
-      });
+      const trimMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 });
       const trimMesh = new THREE.Mesh(trimGeo, trimMat);
       artGroup.add(trimMesh);
 
-      // 3. Museum Matting (Off-white pass-partout board)
+      // Matting
       const mattingGeo = new THREE.BoxGeometry(w + 0.06, h + 0.06, frameDepth + 0.03);
-      const mattingMat = new THREE.MeshStandardMaterial({
-        color: 0xfcfaf7,
-        roughness: 0.95
-      });
+      const mattingMat = new THREE.MeshStandardMaterial({ color: 0xfcfaf7, roughness: 0.95 });
       const mattingMesh = new THREE.Mesh(mattingGeo, mattingMat);
       artGroup.add(mattingMesh);
 
-      // 4. Photo Canvas Plane (Interactive clickable target)
+      // Photo Canvas
       const canvasGeo = new THREE.PlaneGeometry(w, h);
-      const photoMat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.2,
-        metalness: 0.05
-      });
+      const photoMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, metalness: 0.05 });
 
-      // Load texture with error fallback
       const imgPath = art.localUrl || art.remoteThumbUrl;
       textureLoader.load(
         imgPath,
@@ -410,7 +355,6 @@ export class Gallery3D {
         },
         undefined,
         () => {
-          // Fallback to Google Drive CDN
           textureLoader.load(art.fullUrl, (fallbackTex) => {
             photoMat.map = fallbackTex;
             photoMat.needsUpdate = true;
@@ -424,20 +368,15 @@ export class Gallery3D {
       artGroup.add(canvasMesh);
       this.artworkMeshes.push(canvasMesh);
 
-      // 5. Interactive Proximity Glow Halo (Hidden by default, lights up on focus)
+      // Glow Halo
       const glowGeo = new THREE.PlaneGeometry(w + 0.6, h + 0.6);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: 0xf59e0b,
-        transparent: true,
-        opacity: 0,
-        side: THREE.DoubleSide
-      });
+      const glowMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0, side: THREE.DoubleSide });
       const glowMesh = new THREE.Mesh(glowGeo, glowMat);
       glowMesh.position.z = -0.01;
       artGroup.add(glowMesh);
       artGroup.userData.glowMesh = glowMesh;
 
-      // 6. Brass Name Plaque Mounted Below Frame
+      // Brass Name Plaque
       const plaqueCanvas = document.createElement('canvas');
       plaqueCanvas.width = 512;
       plaqueCanvas.height = 128;
@@ -457,11 +396,7 @@ export class Gallery3D {
 
       const plaqueTex = new THREE.CanvasTexture(plaqueCanvas);
       const plaqueMeshGeo = new THREE.PlaneGeometry(w * 0.75, 0.35);
-      const plaqueMeshMat = new THREE.MeshStandardMaterial({
-        map: plaqueTex,
-        metalness: 0.7,
-        roughness: 0.3
-      });
+      const plaqueMeshMat = new THREE.MeshStandardMaterial({ map: plaqueTex, metalness: 0.7, roughness: 0.3 });
       const plaqueMesh = new THREE.Mesh(plaqueMeshGeo, plaqueMeshMat);
       plaqueMesh.position.set(0, -(h / 2 + 0.32), frameDepth / 2 + 0.01);
       artGroup.add(plaqueMesh);
@@ -469,7 +404,7 @@ export class Gallery3D {
       artGroup.userData.plaqueCanvas = plaqueCanvas;
       artGroup.userData.plaqueTex = plaqueTex;
 
-      // 7. Focused Overhead Spotlight
+      // Overhead Spotlight
       const spotLight = new THREE.SpotLight(0xfff5e6, 2.2, 10, Math.PI / 5, 0.4, 1.2);
       spotLight.position.set(0, (h / 2 + 0.8), frameDepth + 0.8);
       spotLight.target = canvasMesh;
@@ -481,7 +416,6 @@ export class Gallery3D {
     });
   }
 
-  // Update plaques when language changes
   updatePlaqueLanguages(lang) {
     this.currentLanguage = lang;
     this.artworksGroup.children.forEach(group => {
@@ -511,7 +445,6 @@ export class Gallery3D {
   }
 
   initParticles() {
-    // Ambient floating dust motes / memory sparks
     const particleCount = 200;
     const geo = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
@@ -535,36 +468,252 @@ export class Gallery3D {
     this.scene.add(this.particles);
   }
 
-  initTourPath() {
-    // CatmullRom spline path weaving through all 5 wings and rotunda
-    const tourPoints = [
-      new THREE.Vector3(0, 1.7, 8),     // Central entrance
-      new THREE.Vector3(5, 1.7, 5),     // Central C-1
-      new THREE.Vector3(8, 1.7, -4),    // Central East approach
-      new THREE.Vector3(20, 1.7, 0),    // Parents Sanctuary entry
-      new THREE.Vector3(26, 1.7, -4),   // Parents North wall
-      new THREE.Vector3(26, 1.7, 4),    // Parents South wall
-      new THREE.Vector3(16, 1.7, 0),    // Returning to center
-      new THREE.Vector3(0, 1.7, 0),     // Rotunda Center monument
-      new THREE.Vector3(0, 1.7, 18),    // Siblings entry
-      new THREE.Vector3(-4, 1.7, 26),   // Siblings West wall
-      new THREE.Vector3(4, 1.7, 26),    // Siblings East wall
-      new THREE.Vector3(0, 1.7, 16),    // Leaving siblings
-      new THREE.Vector3(-14, 1.7, 0),   // Approaching West Wing
-      new THREE.Vector3(-26, 1.7, -4),  // Ajeet Milestones North
-      new THREE.Vector3(-26, 1.7, 4),   // Ajeet Milestones South
-      new THREE.Vector3(-14, 1.7, 0),   // Leaving Ajeet wing
-      new THREE.Vector3(0, 1.7, -16),   // Entering North Heritage Vault
-      new THREE.Vector3(-4, 1.7, -26),  // Vintage West
-      new THREE.Vector3(4, 1.7, -26),   // Vintage East
-      new THREE.Vector3(0, 1.7, -12),   // Exiting vintage
-      new THREE.Vector3(0, 1.7, 8)      // Back to Grand Rotunda
+  // Curated Cinematic Tour Waypoints:
+  // Instead of a blind wild spline, the tour visits signature artworks with smooth glides & pauses!
+  initTourWaypoints() {
+    const stopsList = [
+      'C-1', 'C-3', 'C-5', 'C-7', // Central Rotunda
+      'P-1', 'P-3', 'P-5', 'P-7', // Parents Sanctuary
+      'S-1', 'S-3', 'S-5', 'S-7', // Sibling Chronicles
+      'A-1', 'A-2', 'A-4', 'A-6', // Ajeet Milestones
+      'V-1', 'V-3', 'V-4', 'V-6'  // Heritage Vault
     ];
 
-    this.tourCurve = new THREE.CatmullRomCurve3(tourPoints, true);
+    this.tourWaypoints = [];
+
+    stopsList.forEach(spot => {
+      const art = featuredArtworks.find(a => a.spot === spot);
+      if (!art) return;
+
+      const artPos = new THREE.Vector3(art.position[0], art.position[1], art.position[2]);
+      const rotY = art.rotation[1];
+      // Stand 2.8m in front of the artwork looking directly at the painting center
+      const offsetDir = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY));
+      const camPos = artPos.clone().add(offsetDir.multiplyScalar(2.9));
+      camPos.y = 1.7;
+
+      // Compute exact orientation facing the artwork
+      const tempCam = new THREE.PerspectiveCamera();
+      tempCam.position.copy(camPos);
+      tempCam.lookAt(artPos);
+      const quat = tempCam.quaternion.clone();
+
+      this.tourWaypoints.push({
+        spot,
+        artwork: art,
+        camPos,
+        lookTarget: artPos,
+        quaternion: quat
+      });
+    });
   }
 
-  // Day & Night mode smooth transition
+  startTour(startIndex = 0) {
+    this.isTourActive = true;
+    this.isTourPaused = false;
+    this.tourStopIndex = startIndex % this.tourWaypoints.length;
+    this.setupTourLeg(this.camera.position.clone(), this.camera.quaternion.clone(), this.tourWaypoints[this.tourStopIndex]);
+  }
+
+  stopTour() {
+    this.isTourActive = false;
+    this.isTourPaused = false;
+    // reset glows
+    this.artworksGroup.children.forEach(g => {
+      if (g.userData.glowMesh) g.userData.glowMesh.material.opacity = 0;
+    });
+    this.onTourStopChange(null);
+  }
+
+  toggleGuidedTour() {
+    if (this.isTourActive) {
+      this.stopTour();
+      return false;
+    } else {
+      this.startTour(0);
+      return true;
+    }
+  }
+
+  nextTourStop() {
+    if (!this.isTourActive) return;
+    this.tourStopIndex = (this.tourStopIndex + 1) % this.tourWaypoints.length;
+    this.setupTourLeg(this.camera.position.clone(), this.camera.quaternion.clone(), this.tourWaypoints[this.tourStopIndex]);
+  }
+
+  prevTourStop() {
+    if (!this.isTourActive) return;
+    this.tourStopIndex = (this.tourStopIndex - 1 + this.tourWaypoints.length) % this.tourWaypoints.length;
+    this.setupTourLeg(this.camera.position.clone(), this.camera.quaternion.clone(), this.tourWaypoints[this.tourStopIndex]);
+  }
+
+  setupTourLeg(fromPos, fromQuat, targetWaypoint) {
+    this.tourPhase = 'gliding';
+    this.tourTransitionTime = 0;
+
+    // Reset old glow
+    this.artworksGroup.children.forEach(g => {
+      if (g.userData.glowMesh) g.userData.glowMesh.material.opacity = 0;
+    });
+
+    this.tourStartPos.copy(fromPos);
+    this.tourEndPos.copy(targetWaypoint.camPos);
+    this.tourStartQuat.copy(fromQuat);
+    this.tourEndQuat.copy(targetWaypoint.quaternion);
+
+    // Compute distance to set a smooth, comfortable glide speed
+    const dist = this.tourStartPos.distanceTo(this.tourEndPos);
+    this.tourTotalTransitionTime = Math.max(2.2, Math.min(4.5, dist * 0.16));
+
+    this.onTourStopChange({
+      spot: targetWaypoint.spot,
+      artwork: targetWaypoint.artwork,
+      index: this.tourStopIndex + 1,
+      total: this.tourWaypoints.length,
+      phase: 'gliding'
+    });
+  }
+
+  updateCinematicTour(delta) {
+    if (!this.isTourActive || this.isTourPaused) return;
+
+    const currentWaypoint = this.tourWaypoints[this.tourStopIndex];
+    if (!currentWaypoint) return;
+
+    if (this.tourPhase === 'gliding') {
+      this.tourTransitionTime += delta;
+      const progress = Math.min(1.0, this.tourTransitionTime / this.tourTotalTransitionTime);
+
+      // Smooth Quintic Ease-In-Out for buttery cinematic motion
+      const ease = progress < 0.5
+        ? 16 * Math.pow(progress, 5)
+        : 1 - Math.pow(-2 * progress + 2, 5) / 2;
+
+      // Smooth Position Interpolation
+      this.camera.position.lerpVectors(this.tourStartPos, this.tourEndPos, ease);
+
+      // Smooth Rotation Slerp
+      this.camera.quaternion.slerpQuaternions(this.tourStartQuat, this.tourEndQuat, ease);
+
+      // Footstep audio during travel
+      this.footstepDistance += delta * 3.5;
+      if (this.footstepDistance > 1.8) {
+        soundManager.playFootstep();
+        this.footstepDistance = 0;
+      }
+
+      if (progress >= 1.0) {
+        this.camera.position.copy(this.tourEndPos);
+        this.camera.quaternion.copy(this.tourEndQuat);
+        this.euler.setFromQuaternion(this.camera.quaternion);
+
+        // Switch to Viewing Phase
+        this.tourPhase = 'viewing';
+        this.tourViewTime = 0;
+
+        // Highlight the artwork being presented
+        const mesh = this.artworkMeshes.find(m => m.userData && m.userData.artwork && m.userData.artwork.spot === currentWaypoint.spot);
+        if (mesh && mesh.parent && mesh.parent.userData.glowMesh) {
+          mesh.parent.userData.glowMesh.material.opacity = 0.65;
+        }
+
+        this.onTourStopChange({
+          spot: currentWaypoint.spot,
+          artwork: currentWaypoint.artwork,
+          index: this.tourStopIndex + 1,
+          total: this.tourWaypoints.length,
+          phase: 'viewing'
+        });
+      }
+    } else if (this.tourPhase === 'viewing') {
+      this.tourViewTime += delta;
+
+      // Gentle floating micro-motion while viewing (subtle luxury gallery feel)
+      const drift = Math.sin(this.tourViewTime * 1.5) * 0.04;
+      this.camera.position.y = 1.7 + drift;
+
+      if (this.tourViewTime >= this.tourTotalViewTime) {
+        // Advance to next showcase artwork!
+        this.nextTourStop();
+      }
+    }
+  }
+
+  // Smooth Free-Roaming Movement with Wall-Sliding Physics
+  updateFreeMovement(delta) {
+    this.moveVector.set(0, 0, 0);
+
+    if (this.keys.w || this.keys.ArrowUp) this.moveVector.z -= 1;
+    if (this.keys.s || this.keys.ArrowDown) this.moveVector.z += 1;
+    if (this.keys.a || this.keys.ArrowLeft) this.moveVector.x -= 1;
+    if (this.keys.d || this.keys.ArrowRight) this.moveVector.x += 1;
+
+    if (this.touchJoystick.active) {
+      this.moveVector.x += this.touchJoystick.deltaX;
+      this.moveVector.z += this.touchJoystick.deltaY;
+    }
+
+    // Apply Acceleration
+    if (this.moveVector.lengthSq() > 0) {
+      this.moveVector.normalize();
+
+      const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.euler.y);
+      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.euler.y);
+
+      const targetDir = new THREE.Vector3()
+        .addScaledVector(forward, -this.moveVector.z)
+        .addScaledVector(right, this.moveVector.x)
+        .multiplyScalar(this.maxSpeed);
+
+      // Smooth velocity acceleration
+      this.velocity.lerp(targetDir, 1 - Math.exp(-12 * delta));
+    } else {
+      // Smooth deceleration/friction
+      this.velocity.lerp(new THREE.Vector3(0, 0, 0), 1 - Math.exp(-10 * delta));
+    }
+
+    if (this.velocity.lengthSq() > 0.001) {
+      const currentX = this.camera.position.x;
+      const currentZ = this.camera.position.z;
+      const nextX = currentX + this.velocity.x * delta;
+      const nextZ = currentZ + this.velocity.z * delta;
+
+      // Independent X and Z wall-sliding collision checks
+      const canMoveX = this.isPositionInsideMuseum(nextX, currentZ);
+      const canMoveZ = this.isPositionInsideMuseum(currentX, nextZ);
+
+      if (canMoveX) this.camera.position.x = nextX;
+      else this.velocity.x = 0;
+
+      if (canMoveZ) this.camera.position.z = nextZ;
+      else this.velocity.z = 0;
+
+      // Footstep audio cadence
+      const stepDist = Math.hypot(canMoveX ? this.velocity.x * delta : 0, canMoveZ ? this.velocity.z * delta : 0);
+      this.footstepDistance += stepDist;
+      if (this.footstepDistance > 1.8) {
+        soundManager.playFootstep();
+        this.footstepDistance = 0;
+      }
+    }
+
+    this.camera.position.y = 1.7;
+  }
+
+  isPositionInsideMuseum(x, z) {
+    const distFromCenter = Math.hypot(x, z);
+    const inRotunda = distFromCenter < 13.2;
+    const inEast = x >= 0 && x <= 35.5 && Math.abs(z) <= 6.3;
+    const inWest = x <= 0 && x >= -35.5 && Math.abs(z) <= 6.3;
+    const inSouth = z >= 0 && z <= 35.5 && Math.abs(x) <= 6.3;
+    const inNorth = z <= 0 && z >= -35.5 && Math.abs(x) <= 6.3;
+
+    // Obstacle: Don't walk through the center monument
+    const inMonument = distFromCenter < 2.5;
+
+    return (inRotunda || inEast || inWest || inSouth || inNorth) && !inMonument;
+  }
+
   setNightMode(isNight) {
     this.isNightMode = isNight;
     const targetBg = isNight ? 0x090d16 : 0xf5f3ef;
@@ -590,11 +739,11 @@ export class Gallery3D {
     } else {
       this.hemiLight.color.set(0xfff8f0);
       this.hemiLight.groundColor.set(0xd0c8b8);
-      this.hemiLight.intensity = 0.85;
+      this.hemiLight.intensity = 0.9;
       this.sunLight.color.set(0xfffaf0);
-      this.sunLight.intensity = 1.2;
+      this.sunLight.intensity = 1.25;
       this.crystalLight.color.set(0xffd700);
-      this.crystalLight.intensity = 1.2;
+      this.crystalLight.intensity = 1.3;
 
       this.wallMat.color.set(0xf3f0e8);
       this.ceilingMat.color.set(0xefede8);
@@ -609,32 +758,36 @@ export class Gallery3D {
     if (!wing) return;
 
     soundManager.playTeleport();
-    this.isTourActive = false;
+    this.stopTour();
 
-    // Smooth transition
     const startPos = this.camera.position.clone();
     const endPos = new THREE.Vector3(wing.teleport.x, wing.teleport.y, wing.teleport.z);
     const lookAtPos = new THREE.Vector3(wing.teleport.lookAt.x, wing.teleport.lookAt.y, wing.teleport.lookAt.z);
 
+    const tempCam = new THREE.PerspectiveCamera();
+    tempCam.position.copy(endPos);
+    tempCam.lookAt(lookAtPos);
+    const endQuat = tempCam.quaternion.clone();
+    const startQuat = this.camera.quaternion.clone();
+
     let progress = 0;
-    const duration = 800; // ms
+    const duration = 750;
     const startTime = performance.now();
 
     const animStep = (now) => {
       progress = Math.min(1, (now - startTime) / duration);
-      // smooth easeInOutCubic
       const ease = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
 
       this.camera.position.lerpVectors(startPos, endPos, ease);
-      this.camera.lookAt(lookAtPos);
-
-      // sync euler
+      this.camera.quaternion.slerpQuaternions(startQuat, endQuat, ease);
       this.euler.setFromQuaternion(this.camera.quaternion);
 
       if (progress < 1) {
         requestAnimationFrame(animStep);
       } else {
         this.camera.position.copy(endPos);
+        this.camera.quaternion.copy(endQuat);
+        this.euler.setFromQuaternion(this.camera.quaternion);
         this.onWingChange(wing);
       }
     };
@@ -646,32 +799,51 @@ export class Gallery3D {
     if (!art) return;
 
     soundManager.playTeleport();
-    this.isTourActive = false;
+    this.stopTour();
 
-    // Stand 2.8 meters in front of the painting looking directly at it
     const artPos = new THREE.Vector3(art.position[0], art.position[1], art.position[2]);
     const rotY = art.rotation[1];
     const offsetDir = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY));
-    const targetCamPos = artPos.clone().add(offsetDir.multiplyScalar(2.8));
+    const targetCamPos = artPos.clone().add(offsetDir.multiplyScalar(2.9));
     targetCamPos.y = 1.7;
 
-    this.camera.position.copy(targetCamPos);
-    this.camera.lookAt(artPos);
-    this.euler.setFromQuaternion(this.camera.quaternion);
-  }
+    const startPos = this.camera.position.clone();
+    const startQuat = this.camera.quaternion.clone();
 
-  toggleGuidedTour() {
-    this.isTourActive = !this.isTourActive;
-    return this.isTourActive;
+    const tempCam = new THREE.PerspectiveCamera();
+    tempCam.position.copy(targetCamPos);
+    tempCam.lookAt(artPos);
+    const endQuat = tempCam.quaternion.clone();
+
+    let progress = 0;
+    const duration = 750;
+    const startTime = performance.now();
+
+    const animStep = (now) => {
+      progress = Math.min(1, (now - startTime) / duration);
+      const ease = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      this.camera.position.lerpVectors(startPos, targetCamPos, ease);
+      this.camera.quaternion.slerpQuaternions(startQuat, endQuat, ease);
+      this.euler.setFromQuaternion(this.camera.quaternion);
+
+      if (progress < 1) {
+        requestAnimationFrame(animStep);
+      } else {
+        this.camera.position.copy(targetCamPos);
+        this.camera.quaternion.copy(endQuat);
+        this.euler.setFromQuaternion(this.camera.quaternion);
+      }
+    };
+    requestAnimationFrame(animStep);
   }
 
   initEventListeners() {
-    // Keyboard handlers
     window.addEventListener('keydown', (e) => {
       if (['w', 'a', 's', 'd', 'W', 'A', 'S', 'D', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.key)) {
         this.keys[e.key.toLowerCase()] = true;
         this.keys[e.key] = true;
-        if (this.isTourActive) this.isTourActive = false;
+        if (this.isTourActive) this.stopTour();
       }
       if (e.key === 'e' || e.key === 'E') {
         if (this.hoveredArtwork) {
@@ -687,7 +859,6 @@ export class Gallery3D {
       }
     });
 
-    // Mouse movement (drag look & pointer lock)
     this.isMouseDown = false;
     this.renderer.domElement.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
@@ -702,12 +873,12 @@ export class Gallery3D {
     });
 
     window.addEventListener('mousemove', (e) => {
-      // Raycasting for hover
       this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
       this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
       this.checkArtworkHover();
 
-      // Look rotation
+      if (this.isTourActive) return; // Free look locked during guided tour for cinematic stability
+
       if (this.isPointerLocked) {
         this.euler.y -= e.movementX * 0.0022;
         this.euler.x -= e.movementY * 0.0022;
@@ -726,14 +897,12 @@ export class Gallery3D {
       }
     });
 
-    // Click to inspect artwork
-    this.renderer.domElement.addEventListener('click', (e) => {
+    this.renderer.domElement.addEventListener('click', () => {
       if (this.hoveredArtwork) {
         this.selectArtwork(this.hoveredArtwork);
       }
     });
 
-    // Resize handler
     window.addEventListener('resize', () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
@@ -751,7 +920,6 @@ export class Gallery3D {
       if (this.hoveredArtwork !== art) {
         this.hoveredArtwork = art;
         this.onHoverArtwork(art);
-        // Highlight glow
         const group = hit.parent;
         if (group && group.userData.glowMesh) {
           group.userData.glowMesh.material.opacity = 0.55;
@@ -760,9 +928,10 @@ export class Gallery3D {
       }
     } else {
       if (this.hoveredArtwork) {
-        // Reset old glow
         this.artworksGroup.children.forEach(g => {
-          if (g.userData.glowMesh) g.userData.glowMesh.material.opacity = 0;
+          if (g.userData.glowMesh && (!this.isTourActive || this.tourPhase !== 'viewing')) {
+            g.userData.glowMesh.material.opacity = 0;
+          }
         });
         this.hoveredArtwork = null;
         this.onHoverArtwork(null);
@@ -777,88 +946,6 @@ export class Gallery3D {
     this.onSelectArtwork(art);
   }
 
-  // Update physical movement & collision bounds
-  updateMovement(delta) {
-    if (this.isTourActive) {
-      // Advance along tour path
-      this.tourProgress += this.tourSpeed * (delta * 60);
-      if (this.tourProgress > 1) this.tourProgress = 0;
-
-      const currentPos = this.tourCurve.getPointAt(this.tourProgress);
-      const lookPos = this.tourCurve.getPointAt((this.tourProgress + 0.02) % 1);
-
-      this.camera.position.copy(currentPos);
-      this.camera.lookAt(lookPos);
-      this.euler.setFromQuaternion(this.camera.quaternion);
-
-      // Footstep audio during tour
-      this.footstepDistance += delta * 4;
-      if (this.footstepDistance > 1.8) {
-        soundManager.playFootstep();
-        this.footstepDistance = 0;
-      }
-      return;
-    }
-
-    // Normal player movement
-    this.moveVector.set(0, 0, 0);
-
-    // Keyboard inputs
-    if (this.keys.w || this.keys.ArrowUp) this.moveVector.z -= 1;
-    if (this.keys.s || this.keys.ArrowDown) this.moveVector.z += 1;
-    if (this.keys.a || this.keys.ArrowLeft) this.moveVector.x -= 1;
-    if (this.keys.d || this.keys.ArrowRight) this.moveVector.x += 1;
-
-    // Mobile touch joystick input
-    if (this.touchJoystick.active) {
-      this.moveVector.x += this.touchJoystick.deltaX;
-      this.moveVector.z += this.touchJoystick.deltaY;
-    }
-
-    if (this.moveVector.lengthSq() > 0) {
-      this.moveVector.normalize();
-
-      // Transform according to camera yaw (Y rotation)
-      const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.euler.y);
-      const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.euler.y);
-
-      const displacement = new THREE.Vector3()
-        .addScaledVector(forward, -this.moveVector.z)
-        .addScaledVector(right, this.moveVector.x)
-        .multiplyScalar(this.userSpeed * delta);
-
-      const nextPos = this.camera.position.clone().add(displacement);
-
-      // Collision boundaries (cross shape gallery)
-      // Rotunda: within radius 13.5
-      // East Wing: X in [0, 36], Z in [-6.5, 6.5]
-      // West Wing: X in [-36, 0], Z in [-6.5, 6.5]
-      // South Wing: Z in [0, 36], X in [-6.5, 6.5]
-      // North Wing: Z in [-36, 0], X in [-6.5, 6.5]
-      const distFromCenter = Math.hypot(nextPos.x, nextPos.z);
-      const inRotunda = distFromCenter < 13.2;
-      const inEast = nextPos.x >= 0 && nextPos.x <= 35.5 && Math.abs(nextPos.z) <= 6.3;
-      const inWest = nextPos.x <= 0 && nextPos.x >= -35.5 && Math.abs(nextPos.z) <= 6.3;
-      const inSouth = nextPos.z >= 0 && nextPos.z <= 35.5 && Math.abs(nextPos.x) <= 6.3;
-      const inNorth = nextPos.z <= 0 && nextPos.z >= -35.5 && Math.abs(nextPos.x) <= 6.3;
-
-      if (inRotunda || inEast || inWest || inSouth || inNorth) {
-        this.camera.position.copy(nextPos);
-
-        // Footstep cadence
-        this.footstepDistance += displacement.length();
-        if (this.footstepDistance > 1.8) {
-          soundManager.playFootstep();
-          this.footstepDistance = 0;
-        }
-      }
-    }
-
-    // Keep human eye height fixed at 1.7m
-    this.camera.position.y = 1.7;
-  }
-
-  // Determine which wing the player is currently inside
   getCurrentWing() {
     const x = this.camera.position.x;
     const z = this.camera.position.z;
@@ -872,10 +959,13 @@ export class Gallery3D {
 
   animate() {
     requestAnimationFrame(this.animate);
-    const delta = Math.min(this.clock.getDelta(), 0.1);
+    const delta = Math.min(this.clock.getDelta(), 0.08);
 
-    // Update player movement
-    this.updateMovement(delta);
+    if (this.isTourActive) {
+      this.updateCinematicTour(delta);
+    } else {
+      this.updateFreeMovement(delta);
+    }
 
     // Animate central crystal & rings
     if (this.crystal) {
